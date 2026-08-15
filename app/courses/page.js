@@ -1,42 +1,30 @@
-"use client";
-
-import { useState } from "react";
-
-import courses from "@/data/courses";
 import CourseCard from "@/components/CourseCard";
-import SectionTitle from "@/components/SectionTitle";
-import SearchBar from "@/components/SearchBar";
 
-export default function CoursesPage() {
-  const [search, setSearch] = useState("");
-
-  const filteredCourses = courses.filter((course) =>
-    course.title.toLowerCase().includes(search.toLowerCase())
+export default async function CoursesPage() {
+  const response = await fetch(
+    `${process.env.NEXT_PUBLIC_API_URL}/api/courses`,
+    {
+      cache: "no-store",
+    }
   );
 
+  if (!response.ok) {
+    throw new Error("Failed to fetch courses.");
+  }
+
+  const courses = await response.json();
+
   return (
-    <>
-      <SectionTitle title="All Courses" />
+    <main className="max-w-7xl mx-auto px-6 py-12">
+      <h1 className="text-4xl font-bold text-center mb-10">
+        All Courses
+      </h1>
 
-      <SearchBar
-        value={search}
-        onChange={setSearch}
-      />
-
-      {filteredCourses.length === 0 ? (
-        <p className="text-center text-xl">
-          No courses found.
-        </p>
-      ) : (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredCourses.map((course) => (
-            <CourseCard
-              key={course.id}
-              course={course}
-            />
-          ))}
-        </div>
-      )}
-    </>
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {courses.map((course) => (
+          <CourseCard key={course.id} course={course} />
+        ))}
+      </div>
+    </main>
   );
 }
