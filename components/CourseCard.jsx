@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 
-export default function CourseCard({ course, onEdit, onDelete }) {
+export default function CourseCard({
+  course,
+  onEdit,
+  onDelete,
+  canEdit = false,
+  canDelete = false,
+}) {
   return (
     <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-xl transition">
       <h3 className="text-2xl font-bold mb-3">
@@ -23,7 +29,10 @@ export default function CourseCard({ course, onEdit, onDelete }) {
         </p>
 
         <p>
-          <strong>Instructor:</strong> {course.instructor}
+          <strong>Instructor:</strong>{" "}
+          {course.instructor?.name ||
+            course.instructor ||
+            "Not assigned"}
         </p>
       </div>
 
@@ -35,19 +44,23 @@ export default function CourseCard({ course, onEdit, onDelete }) {
           View Details
         </Link>
 
-        <button
-          onClick={() => onEdit(course)}
-          className="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600"
-        >
-          Edit
-        </button>
+        {canEdit && (
+          <button
+            onClick={() => onEdit(course)}
+            className="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600"
+          >
+            Edit
+          </button>
+        )}
 
-        <button
-          onClick={() => onDelete(course.id)}
-          className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
-        >
-          Delete
-        </button>
+        {canDelete && (
+          <button
+            onClick={() => onDelete(course.id)}
+            className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+          >
+            Delete
+          </button>
+        )}
       </div>
     </div>
   );

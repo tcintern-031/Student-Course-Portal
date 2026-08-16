@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import CourseCard from "./CourseCard";
 import SectionTitle from "./SectionTitle";
+import { getToken, getUser } from "@/lib/auth";
 
 export default function FeaturedCourses() {
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [user, setUser] = useState(null);
 
   const [formData, setFormData] = useState({
     slug: "",
@@ -15,22 +17,42 @@ export default function FeaturedCourses() {
     description: "",
     duration: "",
     level: "",
-    instructor: "",
     featured: false,
+    instructorId: "",
   });
 
   const [editingId, setEditingId] = useState(null);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-  // Get courses
   useEffect(() => {
+    setUser(getUser());
+
     const fetchCourses = async () => {
+      const token = getToken();
+
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
       try {
-        setLoading(true);
         setError("");
 
-        const response = await fetch(`${API_URL}/api/courses`);
+        const response = await fetch(
+          `${API_URL}/api/courses`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (response.status === 401) {
+          throw new Error(
+            "Your session has expired. Please login again."
+          );
+        }
 
         if (!response.ok) {
           throw new Error("Failed to fetch courses.");
@@ -48,7 +70,6 @@ export default function FeaturedCourses() {
     fetchCourses();
   }, [API_URL]);
 
-  // Handle form input
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
 
@@ -58,9 +79,15 @@ export default function FeaturedCourses() {
     });
   };
 
-  // Add or update course
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    const token = getToken();
+
+    if (!token) {
+      setError("Please login before managing courses.");
+      return;
+    }
 
     try {
       setError("");
@@ -75,9 +102,27 @@ export default function FeaturedCourses() {
         method,
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          instructorId: formData.instructorId
+            ? Number(formData.instructorId)
+            : null,
+        }),
       });
+
+      if (response.status === 401) {
+        throw new Error(
+          "Your session has expired. Please login again."
+        );
+      }
+
+      if (response.status === 403) {
+        throw new Error(
+          "You are not authorized to perform this action."
+        );
+      }
 
       if (!response.ok) {
         throw new Error(
@@ -90,49 +135,51 @@ export default function FeaturedCourses() {
       const savedCourse = await response.json();
 
       if (editingId) {
-        // Update existing course in state
         setCourses((currentCourses) =>
           currentCourses.map((course) =>
-            course.id === editingId ? savedCourse : course
+            course.id === editingId
+              ? savedCourse
+              : course
           )
         );
       } else {
-        // Add new course to state
         setCourses((currentCourses) => [
           ...currentCourses,
           savedCourse,
         ]);
       }
 
-      // Reset form
-      setFormData({
-        slug: "",
-        title: "",
-        description: "",
-        duration: "",
-        level: "",
-        instructor: "",
-        featured: false,
-      });
-
-      setEditingId(null);
+      resetForm();
     } catch (error) {
       setError(error.message);
     }
   };
 
-  // Start editing
+  const resetForm = () => {
+    setFormData({
+      slug: "",
+      title: "",
+      description: "",
+      duration: "",
+      level: "",
+      featured: false,
+      instructorId: "",
+    });
+
+    setEditingId(null);
+  };
+
   const handleEdit = (course) => {
     setEditingId(course.id);
 
     setFormData({
-      slug: course.slug,
-      title: course.title,
-      description: course.description,
-      duration: course.duration,
-      level: course.level,
-      instructor: course.instructor,
-      featured: course.featured,
+      slug: course.slug || "",
+      title: course.title || "",
+      description: course.description || "",
+      duration: course.duration || "",
+      level: course.level || "",
+      featured: course.featured || false,
+      instructorId: course.instructorId || "",
     });
 
     window.scrollTo({
@@ -141,13 +188,19 @@ export default function FeaturedCourses() {
     });
   };
 
-  // Delete course
   const handleDelete = async (id) => {
     const confirmed = window.confirm(
       "Are you sure you want to delete this course?"
     );
 
     if (!confirmed) {
+      return;
+    }
+
+    const token = getToken();
+
+    if (!token) {
+      setError("Please login before deleting a course.");
       return;
     }
 
@@ -158,181 +211,206 @@ export default function FeaturedCourses() {
         `${API_URL}/api/courses/${id}`,
         {
           method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
         }
       );
+
+      if (response.status === 401) {
+        throw new Error(
+          "Your session has expired. Please login again."
+        );
+      }
+
+      if (response.status === 403) {
+        throw new Error(
+          "You are not authorized to delete this course."
+        );
+      }
 
       if (!response.ok) {
         throw new Error("Failed to delete course.");
       }
 
-      // Remove deleted course from UI
       setCourses((currentCourses) =>
-        currentCourses.filter((course) => course.id !== id)
+        currentCourses.filter(
+          (course) => course.id !== id
+        )
       );
-
-      // If deleted course was being edited, reset the form
-      if (editingId === id) {
-        setEditingId(null);
-
-        setFormData({
-          slug: "",
-          title: "",
-          description: "",
-          duration: "",
-          level: "",
-          instructor: "",
-          featured: false,
-        });
-      }
     } catch (error) {
       setError(error.message);
     }
   };
 
-  const featuredCourses = courses.filter(
-    (course) => course.featured
-  );
+  const canManageCourse = (course) => {
+    if (!user) {
+      return false;
+    }
+
+    if (user.role === "Admin") {
+      return true;
+    }
+
+    if (user.role === "Instructor") {
+      return course.createdByUserId === user.id;
+    }
+
+    return false;
+  };
+
+  if (loading) {
+    return (
+      <section className="py-10">
+        <p className="text-center">Loading courses...</p>
+      </section>
+    );
+  }
+
+  if (!user) {
+    return (
+      <section className="py-10">
+        <SectionTitle title="Featured Courses" />
+
+        <div className="bg-yellow-100 text-yellow-800 p-5 rounded-lg text-center">
+          Please{" "}
+          <a
+            href="/login"
+            className="font-bold underline"
+          >
+            login
+          </a>{" "}
+          to view protected courses.
+        </div>
+      </section>
+    );
+  }
 
   return (
-    <section className="mt-16">
+    <section className="py-10">
       <SectionTitle title="Featured Courses" />
 
-      {loading && (
-        <p className="text-center py-8">
-          Loading courses...
-        </p>
-      )}
-
       {error && (
-        <p className="text-center text-red-500 py-4">
+        <div className="bg-red-100 text-red-700 p-4 rounded-lg mb-6">
           {error}
-        </p>
+        </div>
       )}
 
-      {!loading && !error && (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {featuredCourses.map((course) => (
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {courses
+          .filter((course) => course.featured)
+          .map((course) => (
             <CourseCard
               key={course.id}
               course={course}
               onEdit={handleEdit}
               onDelete={handleDelete}
+              canEdit={canManageCourse(course)}
+              canDelete={canManageCourse(course)}
             />
           ))}
-        </div>
-      )}
+      </div>
 
-      <div className="mt-12">
-        <SectionTitle
-          title={editingId ? "Edit Course" : "Add New Course"}
-        />
+      {(user.role === "Admin" ||
+        user.role === "Instructor") && (
+        <div className="mt-12 bg-white p-6 rounded-xl shadow-md">
+          <h2 className="text-2xl font-bold mb-6">
+            {editingId
+              ? "Edit Course"
+              : "Add New Course"}
+          </h2>
 
-        <form
-          onSubmit={handleSubmit}
-          className="max-w-2xl mx-auto space-y-4"
-        >
-          <input
-            type="text"
-            name="slug"
-            placeholder="Slug"
-            value={formData.slug}
-            onChange={handleChange}
-            required
-            className="w-full border rounded p-3"
-          />
-
-          <input
-            type="text"
-            name="title"
-            placeholder="Course title"
-            value={formData.title}
-            onChange={handleChange}
-            required
-            className="w-full border rounded p-3"
-          />
-
-          <textarea
-            name="description"
-            placeholder="Course description"
-            value={formData.description}
-            onChange={handleChange}
-            required
-            className="w-full border rounded p-3"
-          />
-
-          <input
-            type="text"
-            name="duration"
-            placeholder="Duration e.g. 12 Weeks"
-            value={formData.duration}
-            onChange={handleChange}
-            required
-            className="w-full border rounded p-3"
-          />
-
-          <input
-            type="text"
-            name="level"
-            placeholder="Level e.g. Beginner"
-            value={formData.level}
-            onChange={handleChange}
-            required
-            className="w-full border rounded p-3"
-          />
-
-          <input
-            type="text"
-            name="instructor"
-            placeholder="Instructor"
-            value={formData.instructor}
-            onChange={handleChange}
-            required
-            className="w-full border rounded p-3"
-          />
-
-          <label className="flex items-center gap-2">
+          <form
+            onSubmit={handleSubmit}
+            className="grid md:grid-cols-2 gap-4"
+          >
             <input
-              type="checkbox"
-              name="featured"
-              checked={formData.featured}
+              name="slug"
+              placeholder="Slug"
+              value={formData.slug}
               onChange={handleChange}
+              required
+              className="border rounded-lg px-4 py-3"
             />
 
-            Featured course
-          </label>
+            <input
+              name="title"
+              placeholder="Title"
+              value={formData.title}
+              onChange={handleChange}
+              required
+              className="border rounded-lg px-4 py-3"
+            />
 
-          <div className="flex gap-3">
-            <button
-              type="submit"
-              className="bg-black text-white px-6 py-3 rounded"
-            >
-              {editingId ? "Update Course" : "Add Course"}
-            </button>
+            <textarea
+              name="description"
+              placeholder="Description"
+              value={formData.description}
+              onChange={handleChange}
+              required
+              className="border rounded-lg px-4 py-3 md:col-span-2"
+            />
 
-            {editingId && (
+            <input
+              name="duration"
+              placeholder="Duration"
+              value={formData.duration}
+              onChange={handleChange}
+              required
+              className="border rounded-lg px-4 py-3"
+            />
+
+            <input
+              name="level"
+              placeholder="Level"
+              value={formData.level}
+              onChange={handleChange}
+              required
+              className="border rounded-lg px-4 py-3"
+            />
+
+            <input
+              name="instructorId"
+              type="number"
+              placeholder="Instructor ID (optional)"
+              value={formData.instructorId}
+              onChange={handleChange}
+              className="border rounded-lg px-4 py-3"
+            />
+
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                name="featured"
+                checked={formData.featured}
+                onChange={handleChange}
+              />
+              Featured Course
+            </label>
+
+            <div className="md:col-span-2 flex gap-3">
               <button
-                type="button"
-                onClick={() => {
-                  setEditingId(null);
-
-                  setFormData({
-                    slug: "",
-                    title: "",
-                    description: "",
-                    duration: "",
-                    level: "",
-                    instructor: "",
-                    featured: false,
-                  });
-                }}
-                className="bg-gray-500 text-white px-6 py-3 rounded"
+                type="submit"
+                className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700"
               >
-                Cancel
+                {editingId
+                  ? "Update Course"
+                  : "Add Course"}
               </button>
-            )}
-          </div>
-        </form>
-      </div>
+
+              {editingId && (
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  className="bg-gray-500 text-white px-6 py-3 rounded-lg hover:bg-gray-600"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
+      )}
     </section>
   );
 }
